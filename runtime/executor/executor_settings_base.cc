@@ -25,6 +25,7 @@
 #include "absl/strings/match.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
+#include "runtime/util/data_stream.h"
 #include "runtime/util/file_util.h"
 #include "runtime/util/memory_mapped_file.h"
 #include "runtime/util/scoped_file.h"
@@ -154,6 +155,12 @@ absl::StatusOr<ModelAssets> ModelAssets::Create(
 
 // static
 absl::StatusOr<ModelAssets> ModelAssets::Create(
+    std::shared_ptr<litert::lm::DataStream> data_stream) {
+  return ModelAssets(std::move(data_stream));
+}
+
+// static
+absl::StatusOr<ModelAssets> ModelAssets::Create(
     std::shared_ptr<litert::lm::ScopedFile> model_file,
     absl::string_view model_path) {
   return ModelAssets(std::move(model_file), model_path);
@@ -182,6 +189,9 @@ ModelAssets::ModelAssets(
     absl::string_view model_path)
     : path_(model_path), memory_mapped_file_(std::move(model_file)) {}
 
+ModelAssets::ModelAssets(std::shared_ptr<litert::lm::DataStream> data_stream)
+    : data_stream_(std::move(data_stream)) {}
+
 absl::StatusOr<absl::string_view> ModelAssets::GetPath() const {
   if (!path_.empty()) {
     return path_;
@@ -206,6 +216,14 @@ ModelAssets::GetMemoryMappedFile() const {
   return memory_mapped_file_;
 }
 
+absl::StatusOr<std::shared_ptr<DataStream>> ModelAssets::GetDataStream() const {
+  if (!HasDataStream()) {
+    return absl::InvalidArgumentError(
+        "Assets were not created with a data stream.");
+  }
+  return data_stream_;
+}
+
 absl::StatusOr<std::shared_ptr<ScopedFile>> ModelAssets::GetOrCreateScopedFile()
     const {
   if (HasScopedFile()) {
@@ -222,13 +240,38 @@ absl::StatusOr<std::shared_ptr<ScopedFile>> ModelAssets::GetOrCreateScopedFile()
 
 std::ostream& operator<<(std::ostream& os, const ModelAssets& model_assets) {
   if (model_assets.HasScopedFile()) {
-    os << "model_file file descriptor ID: "
-       << model_assets.GetScopedFile().value()->file() << "\n";
+    auto scoped_file = model_assets.GetScopedFile();
+    if (scoped_file.ok()) {
+      os << "model_file file descriptor ID: " << scoped_file.value()->file()
+         << "\n";
+    } else {
+      os << "model_file error getting ScopedFile: " << scoped_file.status()
+         << "\n";
+    }
   } else if (model_assets.HasMemoryMappedFile()) {
-    os << "model_file memory mapped file: "
-       << model_assets.GetMemoryMappedFile().value()->data() << "\n";
+    auto memory_mapped_file = model_assets.GetMemoryMappedFile();
+    if (memory_mapped_file.ok()) {
+      os << "model_file memory mapped file: "
+         << memory_mapped_file.value()->data() << "\n";
+    } else {
+      os << "model_file error getting MemoryMappedFile: "
+         << memory_mapped_file.status() << "\n";
+    }
+  } else if (model_assets.HasDataStream()) {
+    auto data_stream = model_assets.GetDataStream();
+    if (data_stream.ok()) {
+      os << "model_file data stream: " << data_stream.value() << "\n";
+    } else {
+      os << "model_file error getting DataStream: " << data_stream.status()
+         << "\n";
+    }
   } else {
-    os << "model_path: " << model_assets.GetPath().value() << "\n";
+    auto model_path = model_assets.GetPath();
+    if (model_path.ok()) {
+      os << "model_path: " << model_path.value() << "\n";
+    } else {
+      os << "model_path error: " << model_path.status() << "\n";
+    }
   }
   os << "fake_weights_mode: " << model_assets.fake_weights_mode() << "\n";
   return os;
