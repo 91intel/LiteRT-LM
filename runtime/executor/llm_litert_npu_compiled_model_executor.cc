@@ -2527,11 +2527,30 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
       const litert::Model* llm_model,
       resources.GetTFLiteModel(ModelType::kTfLitePrefillDecode));
 
+  // Initialize logits quantization parameters using the 'decode' signature.
+  LogitsQuantizationParams quantization_params = {.scale = 1.0f,
+                                                  .zero_point = 0};
+  LITERT_ASSIGN_OR_RETURN(auto decode_signature,
+                          llm_model->FindSignature(kDecodeSignature));
+  LITERT_ASSIGN_OR_RETURN(
+      auto logits_tensor,
+      decode_signature.OutputTensor(LlmSignatures::kDecodeLogitsOutput));
+  if (logits_tensor.HasQuantization()) {
+    auto q_params = logits_tensor.PerTensorQuantization();
+    quantization_params.scale = q_params.scale;
+    quantization_params.zero_point = static_cast<int32_t>(q_params.zero_point);
+    ABSL_LOG(INFO) << "Logits quantization params from '" << kDecodeSignature
+                   << "' signature: scale=" << quantization_params.scale
+                   << " zero_point=" << quantization_params.zero_point;
+  } else {
+    ABSL_LOG(WARNING) << "No quantization for logits in '" << kDecodeSignature
+                      << "' signature (using default scale= "
+                      << quantization_params.scale
+                      << ", zero_point= " << quantization_params.zero_point
+                      << ").";
+  }
   // For the lack of a better way to identify the model variants, we use the
   // presence of per-layer embeddings as the signal for Gemma3n.
-  // TODO: saliltambe - Remove the hardcoded quantization params. b/498978928
-  auto quantization_params =
-      LogitsQuantizationParams{.scale = 0.5f, .zero_point = 1};
   LITERT_ASSIGN_OR_RETURN(const bool has_per_layer_embeddings,
                           HasPerLayerEmbedder(*llm_model));
   if (has_per_layer_embeddings) {
