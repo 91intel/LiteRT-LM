@@ -270,6 +270,11 @@ class LitertLmFileBuilder:
               _resolve_path(section["data_path"], parent_dir),
               additional_metadata=additional_metadata,
           )
+        elif section["section_type"] == "GenericBinaryData":
+          builder.add_generic_binary_data(
+              _resolve_path(section["data_path"], parent_dir),
+              additional_metadata=additional_metadata,
+          )
         else:
           raise ValueError(
               f"Unexpected section type: {section['section_type']}"
@@ -528,6 +533,41 @@ class LitertLmFileBuilder:
         metadata=additional_metadata if additional_metadata else [],
         data_type=schema.AnySectionDataType.HF_Tokenizer_Zlib,
         data_writer=write_and_compress,
+    )
+    self._sections.append(section_object)
+    return self
+
+  def add_generic_binary_data(
+      self,
+      generic_binary_data_path: str,
+      additional_metadata: Optional[list[Metadata]] = None,
+  ) -> LitertLmFileBuilderT:
+    """Adds generic binary data to the litertlm file.
+
+    Args:
+      generic_binary_data_path: The path to the generic binary data file.
+      additional_metadata: Additional metadata to add to the sentencepiece
+        tokenizer.
+
+    Returns:
+      The current LitertLmFileBuilder object.
+
+    Raises:
+      FileNotFoundError: If the generic binary data file is not found.
+    """
+    if not litertlm_core.path_exists(generic_binary_data_path):
+      raise FileNotFoundError(
+          f"Generic binary data file not found: {generic_binary_data_path}"
+      )
+
+    def data_writer(stream: BinaryIO):
+      with litertlm_core.open_file(generic_binary_data_path, "rb") as f:
+        _copy_file_to_stream(f, stream)
+
+    section_object = _SectionObject(
+        metadata=additional_metadata if additional_metadata else [],
+        data_type=schema.AnySectionDataType.GenericBinaryData,
+        data_writer=data_writer,
     )
     self._sections.append(section_object)
     return self
